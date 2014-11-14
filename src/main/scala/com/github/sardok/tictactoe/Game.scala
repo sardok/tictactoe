@@ -5,7 +5,7 @@ case class StopGameException(msg: String) extends RuntimeException(msg)
 case class PlayerWonException() extends RuntimeException("")
 case class GameFailed() extends RuntimeException("")
 
-class Game(p1: Player, p2: Player, board: Board, printer: Printer) {
+class Game(p1: Player, p2: Player, board: Board, printer: Printer = new ConsolePrinter) {
   /* This game is restricted to 3x3 board. */
   val players = List(p1, p2)
   val player_iter: Iterator[Player] = new Iterator[Player] {
