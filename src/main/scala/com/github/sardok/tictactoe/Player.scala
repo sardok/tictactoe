@@ -1,19 +1,26 @@
 package com.github.sardok.tictactoe
-import scala.io.StdIn
 import scala.util.Random
 import scala.util.control.Exception._
+import akka.actor.{Actor, Props, ActorSystem}
 
-abstract class Player(val name: String, val symbol: Char) {
-  def play(board: Board): Option[(Int, Int)]
-}
+abstract class Player(val name: String, val symbol: Char) extends Actor
 
-object Human extends Player("You", 'O') {
-  def play(b: Board) = {
-      (StdIn.readLine(s"Make your move as 'x, y' (symbol: $symbol): ") 
-        split(",") map(s => toIntOpt(s.trim))).toList match {
-        case Some(x: Int)::Some(y: Int)::_ =>
-          Some((x, y))
-        case _ => None
+class Human extends Player("You", 'O') {
+  var turn = false
+
+  def receive = {
+    case Play(board) =>
+      println(s"Make your move as 'x, y' (symbol: $symbol): ")
+      turn = true
+
+    case KeyboardInput(bytes) =>
+      if (turn) {
+        (bytes split "," map (s => toIntOpt(s.trim))).toList match {
+          case Some(x: Int) :: Some(y: Int) :: _ =>
+            sender() ! new Move(x, y, name, symbol)
+            turn = false
+          case _ => ()
+        }
       }
   }
 
@@ -21,7 +28,11 @@ object Human extends Player("You", 'O') {
     catching(classOf[NumberFormatException]) opt s.toInt
 }
 
-object Machine extends Player("Computer", 'X') {
+  object Human {
+    def props = Props[Human]
+  }
+
+class Machine extends Player("Computer", 'X') {
   /**
     * The AI is based on two actions, one is about
     * winning the game, the other one is about preventing
@@ -31,16 +42,17 @@ object Machine extends Player("Computer", 'X') {
     * Each function returns move(s) with weight value.
     * Weight value is used to make decision for the best move.
     */
-  def play(board: Board) = {
-    val (xmax, ymax) = (board.xmax, board.ymax)
-    require(xmax == 3 && ymax == 3, 
-      s"This machine does not know how to play in '$xmax x $ymax' board!")
-    val board_axis = new BoardAxis(board)
-    val scores = List(offensiveMove(board_axis), defensiveMove(board_axis))
-    scores.flatten sortWith (_._1 > _._1) match {
-      case ((_, pos: Pos))::_ => Some(pos.x, pos.y)
-      case Nil => None
-    }
+  def receive = {
+    case Play(board) =>
+      val (xmax, ymax) = (board.xmax, board.ymax)
+      require(xmax == 3 && ymax == 3,
+        s"This machine does not know how to play in '$xmax x $ymax' board!")
+      val board_axis = new BoardAxis(board)
+      val scores = List(offensiveMove(board_axis), defensiveMove(board_axis))
+      scores.flatten sortWith (_._1 > _._1) match {
+        case ((_, pos: Pos))::_ => sender() ! new Move(pos.x, pos.y, name, symbol)
+        case _ => ()
+      }
   }
 
   private def scoreAxis(score_func: (Iterable[Pos] => Option[(Double, Pos)]))(board_axis: BoardAxis) = {
@@ -91,4 +103,8 @@ object Machine extends Player("Computer", 'X') {
       Some((ratio * oponents.size + ratio - 0.1, spaces.head))
     }
   } _
+}
+
+object Machine {
+  def props = Props[Machine]
 }
