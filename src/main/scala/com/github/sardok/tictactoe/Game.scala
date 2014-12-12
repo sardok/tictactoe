@@ -1,40 +1,48 @@
 package com.github.sardok.tictactoe
 import scala.util.control.Exception._
+import scala.language.reflectiveCalls
+import akka.actor.{Actor, Props, ActorRef}
 
 case class StopGameException(msg: String) extends RuntimeException(msg)
 case class PlayerWonException() extends RuntimeException("")
 case class GameFailed() extends RuntimeException("")
 
-class Game(p1: Player, p2: Player, board: Board, printer: Printer = new ConsolePrinter) {
+class Game(p1: ActorRef, p2: ActorRef, board: Board, printer: Printer = new ConsolePrinter) extends Actor {
   /* This game is restricted to 3x3 board. */
   val players = List(p1, p2)
-  val player_iter: Iterator[Player] = new Iterator[Player] {
+
+  val player_iter = new Iterator[ActorRef] {
     var i = -1
     def hasNext = true
-    def next(): Player = {
+    def next() = {
       i = (i + 1) % 2
       players(i)
     }
   }
 
-  def step = {
-    val player = player_iter.next()
-    val name = player.name
-    player play board match {
-      case Some((x: Int, y: Int)) => 
-        printer.print(s"$name played as x: $x, y: $y.")
-        board add (x, y, player.symbol)
-        try {
-          checkGameState(board)
-        } catch {
-          case ex: PlayerWonException =>
-            throw new StopGameException(s"$name won!")
-          case ex: GameFailed =>
-            throw new StopGameException("No winner. Game is finished!")
-        }
-      case _ => printer.print("Invalid move!, your turn is passed!")
-    }
-
+  def receive = {
+    case StartGame =>
+      printer.print(board)
+      player_iter.next() ! Play(board)
+    case input: KeyboardInput =>
+      // Pass the message to the current player.
+      val player = players(player_iter.i)
+      player ! input
+    case Move(x, y, name, symbol) =>
+      printer.print(s"$name played as x: $x, y: $y.")
+      board add (x, y, symbol)
+      printer.print(board)
+      try {
+        checkGameState(board)
+        player_iter.next() ! Play(board)
+      } catch {
+        case ex: PlayerWonException =>
+          println("Game is ended")
+          context.parent ! EndGame(s"$name won!")
+        case ex: GameFailed =>
+          println("Game is failed.")
+          context.parent ! EndGame("No winner. Game is finished!")
+      }
   }
 
   def checkGameState(board: Board) = {
@@ -81,10 +89,8 @@ class Game(p1: Player, p2: Player, board: Board, printer: Printer = new ConsoleP
       false
     }
   }
+}
 
-  var isEnd = false
-
-  def end = {
-    isEnd = true
-  }
+object Game {
+  def props(p1: ActorRef, p2: ActorRef, board: Board, printer: Printer) = Props(classOf[Game], p1, p2, board, printer)
 }
